@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 680" fill="none">
+  <rect width="800" height="680" rx="32" fill="#F1F5F9"/>
+  <path d="M288 257h224v166H288z" stroke="#0876A8" stroke-width="14" stroke-linejoin="round"/>
+  <path d="m340 472 60-62 43 42 27-27 56 56" stroke="#08AFC0" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="345" cy="311" r="18" fill="#7914A4"/>
+  <text x="400" y="544" text-anchor="middle" fill="#475569" font-family="Arial, sans-serif" font-size="32" font-weight="600">Gadget Hub</text>
+</svg>
