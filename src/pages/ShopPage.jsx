@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import ProductCard from "../components/ProductCard.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import EmptyState from "../components/EmptyState.jsx";
-import { products, productCategories } from "../data/products.js";
+import { products as localProducts } from "../data/products.js";
+import { useCatalog } from "../context/CatalogContext.jsx";
 
 const PAGE_SIZE = 8;
-const MAX_PRICE = Math.max(...products.map((product) => product.price));
+const MAX_PRICE = Math.max(...localProducts.map((product) => product.price));
 
 export default function ShopPage({
   onAddToCart,
@@ -14,6 +15,7 @@ export default function ShopPage({
   onQuickView,
   wishlist,
 }) {
+  const { products, productCategories } = useCatalog();
   const [searchParams, setSearchParams] = useSearchParams();
   const categoryParam = searchParams.get("category") || "All products";
   const queryParam = searchParams.get("q") || "";
@@ -22,6 +24,14 @@ export default function ShopPage({
   const [minimumRating, setMinimumRating] = useState(0);
   const [sortBy, setSortBy] = useState("popular");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const maxPriceLimit = Math.max(
+    MAX_PRICE,
+    ...products.map((product) => product.price),
+  );
+
+  useEffect(() => {
+    setMaxPrice(maxPriceLimit);
+  }, [maxPriceLimit]);
 
   const category = productCategories.includes(categoryParam)
     ? categoryParam
@@ -34,7 +44,7 @@ export default function ShopPage({
         category === "All products" || product.category === category;
       const matchesSearch =
         !query ||
-        `${product.name} ${product.category} ${product.description}`
+        `${product.name} ${product.category} ${product.description} ${product.brand || ""}`
           .toLowerCase()
           .includes(query);
       return (
@@ -53,7 +63,7 @@ export default function ShopPage({
         return products.indexOf(b) - products.indexOf(a);
       return b.reviews - a.reviews;
     });
-  }, [category, queryParam, minPrice, maxPrice, minimumRating, sortBy]);
+  }, [category, queryParam, minPrice, maxPrice, minimumRating, sortBy, products]);
 
   const updateCategory = (value) => {
     const next = new URLSearchParams(searchParams);
@@ -124,7 +134,7 @@ export default function ShopPage({
             <input
               type="range"
               min="0"
-              max={MAX_PRICE}
+              max={maxPriceLimit}
               step="500"
               value={minPrice}
               onChange={(event) => {
@@ -141,7 +151,7 @@ export default function ShopPage({
             <input
               type="range"
               min="0"
-              max={MAX_PRICE}
+              max={maxPriceLimit}
               step="500"
               value={maxPrice}
               onChange={(event) => {

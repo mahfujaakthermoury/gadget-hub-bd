@@ -32,6 +32,7 @@ import CategoriesPage from "./pages/CategoriesPage.jsx";
 import AboutPage from "./pages/AboutPage.jsx";
 import ContactPage from "./pages/ContactPage.jsx";
 import ToastNotification from "./components/ToastNotification.jsx";
+import CheckoutForm from "./components/CheckoutForm.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import {
   AccountPage,
@@ -43,16 +44,21 @@ import {
   AdminOverviewPage,
   AdminSectionPage,
 } from "./pages/admin/AdminPages.jsx";
+import {
+  AdminCategoriesPage,
+  AdminProductsPage,
+} from "./pages/admin/AdminCatalogPages.jsx";
+import {
+  AdminCustomersPage,
+  AdminOrdersPage,
+} from "./pages/admin/AdminOrderPages.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
+import { useCatalog } from "./context/CatalogContext.jsx";
 import {
   getLoginError,
   getRegistrationError,
 } from "./utils/authValidation.js";
-import {
-  formatPrice,
-  productCategories,
-  products,
-} from "./data/products.js";
+import { formatPrice } from "./data/products.js";
 
 const features = [
   {
@@ -165,17 +171,30 @@ function ProductDialog({ product, onClose, onAddToCart }) {
                 {formatPrice(product.oldPrice)}
               </span>
             </div>
-            <p className="mt-2 text-xs font-semibold text-emerald-700">
-              {product.stock === "Low stock"
-                ? "Only a few left — order soon"
-                : "In stock and ready to ship"}
+            <p className={`mt-2 text-xs font-semibold ${
+              product.available === false || product.stockQuantity === 0
+                ? "text-rose-700"
+                : "text-emerald-700"
+            }`}>
+              {product.available === false || product.stockQuantity === 0
+                ? "Currently unavailable"
+                : product.stock === "Low stock"
+                  ? "Only a few left — order soon"
+                  : "In stock and ready to ship"}
             </p>
             <button
               type="button"
               onClick={() => onAddToCart(product)}
-              className="btn btn-primary mt-auto min-h-12 rounded-full border-0 bg-brand-blue text-white hover:bg-brand-purple"
+              disabled={
+                product.active === false ||
+                product.available === false ||
+                product.stockQuantity === 0
+              }
+              className="btn btn-primary mt-auto min-h-12 rounded-full border-0 bg-brand-blue text-white hover:bg-brand-purple disabled:bg-slate-300"
             >
-              Add to bag <ArrowRight size={17} />
+              {product.available === false || product.stockQuantity === 0
+                ? "Unavailable"
+                : "Add to bag"} <ArrowRight size={17} />
             </button>
           </div>
         </motion.div>
@@ -195,6 +214,7 @@ function SidePanel({
   onRemoveWishlistItem,
   onAddToCart,
   onLoginSuccess,
+  onCheckout,
 }) {
   const shouldReduceMotion = useReducedMotion();
   const { login, register } = useAuth();
@@ -566,12 +586,7 @@ function SidePanel({
                   </p>
                   <button
                     type="button"
-                    onClick={() => {
-                      onClose();
-                      document
-                        .getElementById("checkout-note")
-                        ?.scrollIntoView({ behavior: "smooth" });
-                    }}
+                    onClick={onCheckout}
                     className="btn btn-primary w-full rounded-full border-0 bg-brand-blue text-white hover:bg-brand-purple"
                   >
                     Continue to checkout <ArrowRight size={16} />
@@ -596,11 +611,13 @@ export default function App() {
   );
   const [panel, setPanel] = useState(null);
   const [quickViewProduct, setQuickViewProduct] = useState(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [protectedReturnPath, setProtectedReturnPath] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const { products, productCategories, refreshCatalog } = useCatalog();
   const isAdminRoute =
     location.pathname === "/admin" || location.pathname.startsWith("/admin/");
 
@@ -624,6 +641,32 @@ export default function App() {
   }, [wishlist]);
 
   useEffect(() => {
+    const productsById = new Map(products.map((product) => [product.id, product]));
+    setCart((currentCart) =>
+      currentCart.flatMap((entry) => {
+        const product = productsById.get(entry.product.id);
+        if (
+          !product ||
+          product.active === false ||
+          product.available === false ||
+          product.stockQuantity === 0
+        ) {
+          return [];
+        }
+        return [{ ...entry, product }];
+      }),
+    );
+    setWishlist((currentWishlist) =>
+      currentWishlist.map((item) => productsById.get(item.id) || item),
+    );
+    setQuickViewProduct((currentProduct) =>
+      currentProduct
+        ? productsById.get(currentProduct.id) || null
+        : currentProduct,
+    );
+  }, [products]);
+
+  useEffect(() => {
     if (!panel && !quickViewProduct) return undefined;
 
     const handleKeyDown = (event) => {
@@ -645,6 +688,13 @@ export default function App() {
     navigate("/", { replace: true, state: null });
   }, [location.state, navigate]);
 
+  useEffect(() => {
+    if (!checkoutOpen || location.pathname !== "/") return;
+    document
+      .getElementById("checkout-note")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [checkoutOpen, location.pathname]);
+
   const filteredProducts = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     const filtered = products.filter((product) => {
@@ -653,7 +703,7 @@ export default function App() {
         product.category === activeCategory;
       const matchesSearch =
         !normalizedQuery ||
-        `${product.name} ${product.category} ${product.description}`
+        `${product.name} ${product.category} ${product.description} ${product.brand || ""}`
           .toLowerCase()
           .includes(normalizedQuery);
       return matchesCategory && matchesSearch;
@@ -669,7 +719,7 @@ export default function App() {
       return [...filtered].sort((a, b) => b.rating - a.rating);
     }
     return filtered;
-  }, [activeCategory, searchQuery, sortBy]);
+  }, [activeCategory, products, searchQuery, sortBy]);
 
   const cartCount = cart.reduce((total, entry) => total + entry.quantity, 0);
 
@@ -679,6 +729,16 @@ export default function App() {
   };
 
   const addToCart = (product) => {
+    const currentProduct = products.find((item) => item.id === product.id);
+    if (
+      !currentProduct ||
+      currentProduct.active === false ||
+      currentProduct.available === false ||
+      currentProduct.stockQuantity === 0
+    ) {
+      showToast("This product is currently unavailable.");
+      return;
+    }
     setCart((currentCart) => {
       const existing = currentCart.find(
         (entry) => entry.product.id === product.id,
@@ -686,11 +746,15 @@ export default function App() {
       if (existing) {
         return currentCart.map((entry) =>
           entry.product.id === product.id
-            ? { ...entry, quantity: entry.quantity + 1 }
+            ? {
+                ...entry,
+                product: currentProduct,
+                quantity: entry.quantity + 1,
+              }
             : entry,
         );
       }
-      return [...currentCart, { product, quantity: 1 }];
+      return [...currentCart, { product: currentProduct, quantity: 1 }];
     });
     setQuickViewProduct(null);
     showToast("Product added to cart successfully!");
@@ -739,6 +803,25 @@ export default function App() {
     navigate(destination, { replace: true });
   };
 
+  const handleCheckout = () => {
+    setPanel(null);
+    setCheckoutOpen(true);
+    if (!user) {
+      setProtectedReturnPath("/");
+      setPanel("signin");
+    } else if (location.pathname !== "/") {
+      navigate("/");
+    }
+  };
+
+  const handleOrderPlaced = (order) => {
+    setCart([]);
+    setCheckoutOpen(false);
+    showToast(`Order ${order.orderNumber} placed successfully.`);
+    refreshCatalog();
+    navigate("/my-orders");
+  };
+
   return (
     <div className="min-h-screen bg-white text-ink">
       {isAdminRoute ? (
@@ -754,19 +837,19 @@ export default function App() {
             <Route index element={<AdminOverviewPage />} />
             <Route
               path="products"
-              element={<AdminSectionPage section="products" />}
+              element={<AdminProductsPage />}
             />
             <Route
               path="categories"
-              element={<AdminSectionPage section="categories" />}
+              element={<AdminCategoriesPage />}
             />
             <Route
               path="orders"
-              element={<AdminSectionPage section="orders" />}
+              element={<AdminOrdersPage />}
             />
             <Route
               path="customers"
-              element={<AdminSectionPage section="customers" />}
+              element={<AdminCustomersPage />}
             />
             <Route
               path="inventory"
@@ -1037,9 +1120,8 @@ export default function App() {
                   A checkout that works for you
                 </h2>
                 <p className="mt-1.5 max-w-2xl text-xs leading-6 text-slate-500 sm:text-sm">
-                  Cash on delivery and Bangladesh-supported online payment
-                  options are planned. Online payments will be enabled after a
-                  local gateway is selected.
+                  Cash on delivery is available. Online payments will be
+                  enabled after a local gateway is configured.
                 </p>
               </div>
             </div>
@@ -1055,6 +1137,14 @@ export default function App() {
               </span>
             </div>
           </Reveal>
+          {checkoutOpen && (
+            <CheckoutForm
+              user={user}
+              cart={cart}
+              onCancel={() => setCheckoutOpen(false)}
+              onPlaced={handleOrderPlaced}
+            />
+          )}
         </section>
 
         <section className="mx-auto max-w-[1440px] px-5 pb-16 sm:px-8 sm:pb-20 lg:px-12">
@@ -1105,6 +1195,7 @@ export default function App() {
             onClose={() => setPanel(null)}
             onOpenPanel={setPanel}
             onLoginSuccess={handleLoginSuccess}
+            onCheckout={handleCheckout}
             cart={cart}
             wishlist={wishlist.map((product) => ({ product, quantity: 1 }))}
             onRemoveCartItem={(productId) =>

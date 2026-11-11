@@ -13,6 +13,10 @@ export default function ProductCard({
 }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const shouldReduceMotion = useReducedMotion();
+  const unavailable =
+    product.active === false ||
+    product.available === false ||
+    product.stockQuantity === 0;
 
   return (
     <motion.article
@@ -63,11 +67,15 @@ export default function ProductCard({
         >
           {product.badge}
         </span>
-        {product.stock === "Low stock" && (
+        {unavailable ? (
+          <span className="absolute bottom-3 left-3 rounded-full bg-slate-800/90 px-2.5 py-1 text-[10px] font-semibold text-white">
+            Unavailable
+          </span>
+        ) : product.stock === "Low stock" ? (
           <span className="absolute bottom-3 left-3 rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">
             Almost gone
           </span>
-        )}
+        ) : null}
         <div className="absolute right-3 top-3 flex flex-col gap-2">
           <motion.button
             type="button"
@@ -135,10 +143,11 @@ export default function ProductCard({
         <button
           type="button"
           onClick={() => onAddToCart(product)}
-          className="btn btn-primary mt-3 min-h-10 h-10 w-full rounded-full border-0 bg-brand-blue text-xs font-bold text-white shadow-none transition hover:bg-brand-purple"
+          disabled={unavailable}
+          className="btn btn-primary mt-3 min-h-10 h-10 w-full rounded-full border-0 bg-brand-blue text-xs font-bold text-white shadow-none transition hover:bg-brand-purple disabled:bg-slate-300 disabled:text-slate-600"
         >
           <ShoppingBag size={15} />
-          Add to bag
+          {unavailable ? "Unavailable" : "Add to bag"}
         </button>
       </div>
     </motion.article>

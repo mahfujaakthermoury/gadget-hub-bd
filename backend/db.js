@@ -39,6 +39,16 @@ export function getDatabase() {
   return database;
 }
 
+export async function withDatabaseTransaction(operation) {
+  await connectToDatabase();
+  const session = client.startSession();
+  try {
+    return await session.withTransaction(() => operation(session));
+  } finally {
+    await session.endSession();
+  }
+}
+
 export async function closeDatabase() {
   const connectedClient = client;
   client = undefined;

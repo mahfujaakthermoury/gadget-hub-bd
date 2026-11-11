@@ -8,7 +8,8 @@
     "server": "node backend/server.js",
     "server:dev": "node --watch backend/server.js",
     "seed:admin": "node backend/scripts/seedAdmin.js",
-    "test:backend": "node --test backend/tests/registration.test.js backend/tests/auth.test.js backend/tests/rbac.test.js src/utils/accessControl.test.js src/utils/authValidation.test.js",
+    "seed:catalog": "node backend/scripts/seedCatalog.js",
+    "test:backend": "node --test backend/tests/registration.test.js backend/tests/auth.test.js backend/tests/rbac.test.js backend/tests/catalog.test.js backend/tests/orders.test.js src/utils/accessControl.test.js src/utils/authValidation.test.js",
     "build": "vite build",
     "preview": "vite preview"
   },

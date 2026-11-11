@@ -5,14 +5,13 @@ import CategoryCard from "../components/CategoryCard.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Reveal from "../components/Reveal.jsx";
 import SectionHeading from "../components/SectionHeading.jsx";
-import { categories } from "../data/categories.js";
-import { products } from "../data/products.js";
-
-const getCount = (categoryName) =>
-  products.filter((product) => product.category === categoryName).length;
+import { useCatalog } from "../context/CatalogContext.jsx";
 
 export default function CategoriesPage() {
   const shouldReduceMotion = useReducedMotion();
+  const { categories, products } = useCatalog();
+  const getCount = (categoryName) =>
+    products.filter((product) => product.category === categoryName).length;
   const popular = categories.filter((category) => category.popular);
   const featured = categories.filter((category) => category.featured);
 

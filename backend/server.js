@@ -5,6 +5,8 @@ import express from "express";
 import helmet from "helmet";
 import { createAuthRouter } from "./routes/authRoutes.js";
 import { createAdminRouter } from "./routes/adminRoutes.js";
+import { createCatalogRouter } from "./routes/catalogRoutes.js";
+import { createOrderRouter, createMyOrdersRouter } from "./routes/orderRoutes.js";
 import { connectToDatabase } from "./db.js";
 
 const port = Number(process.env.PORT || 5000);
@@ -45,6 +47,9 @@ app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 app.use("/api/auth", createAuthRouter());
 app.use("/api/admin", createAdminRouter());
+app.use("/api/catalog", createCatalogRouter());
+app.use("/api/orders", createOrderRouter());
+app.use("/api/my-orders", createMyOrdersRouter());
 
 app.get("/api/health", async (_request, response) => {
   try {
@@ -79,7 +84,7 @@ app.use((error, request, response, next) => {
   }
 
   response.status(status).json({
-    error: status >= 500 ? "Internal server error." : "Invalid request.",
+    error: status >= 500 ? "Internal server error." : error.message,
   });
 });
 
@@ -87,6 +92,6 @@ connectToDatabase().catch((error) => {
   console.error(`Initial MongoDB connection failed: ${error.message}`);
 });
 
-app.listen(port, () => {
+app.listen(port, "0.0.0.0", () => {
   console.log(`Gadget Hub API listening on port ${port}.`);
 });
