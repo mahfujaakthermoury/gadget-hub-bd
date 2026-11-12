@@ -2,8 +2,23 @@
 <html lang="en" data-theme="gadgethub">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/gadget-hub-logo.png" />
+    <link rel="icon" type="image/png" href="/ghfev.PNG" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        try {
+          const preference = localStorage.getItem("gadget-hub-theme") || "system";
+          const dark = preference === "dark" ||
+            (preference === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.colorMode = dark ? "dark" : "light";
+          document.documentElement.dataset.theme = dark ? "dark" : "gadgethub";
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch {
+          document.documentElement.dataset.colorMode = "light";
+          document.documentElement.dataset.theme = "gadgethub";
+        }
+      })();
+    </script>
     <meta
       name="description"
       content="Discover thoughtfully selected tech, audio, and everyday gadgets at Gadget Hub. Smarter tech. Better life."

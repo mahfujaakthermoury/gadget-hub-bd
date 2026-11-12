@@ -111,7 +111,7 @@ class MemoryCollection {
   }
 }
 
-async function createFixture() {
+async function createFixture({ createStripeSession } = {}) {
   const admin = {
     _id: new ObjectId(),
     name: "Primary Admin",
@@ -164,6 +164,8 @@ async function createFixture() {
     },
   ]);
   const orders = new MemoryCollection();
+  const adjustments = new MemoryCollection();
+  let savedSettings = null;
   const identities = new Map([
     ["test-admin", admin],
     ["test-customer-a", customerA],
@@ -172,7 +174,11 @@ async function createFixture() {
   const dependencies = {
     loadUsers: async () => users,
     loadOrders: async () => orders,
+    loadAdjustments: async () => adjustments,
     loadProducts: async () => products,
+    loadSettings: async () => ({
+      findOne: async () => savedSettings,
+    }),
     loadSessions: async () => ({
       findOne: async (filter) => {
         const user = [...identities.values()].find(
@@ -196,6 +202,7 @@ async function createFixture() {
     runTransaction: async (operation) => operation({}),
     logger: { error() {} },
   };
+  if (createStripeSession) dependencies.createStripeSession = createStripeSession;
   const app = express();
   app.use(express.json());
   app.use(cookieParser());
@@ -213,7 +220,11 @@ async function createFixture() {
     customerA,
     customerB,
     orders,
+    adjustments,
     products,
+    setSettings: (value) => {
+      savedSettings = value;
+    },
     request: (path, { token, ...options } = {}) => {
       const headers = { ...(options.headers || {}) };
       if (token) headers.Cookie = `gadget_hub_session=${token}`;
@@ -280,6 +291,82 @@ test("order creation prices from MongoDB, reserves stock, and ignores client pri
   }
 });
 
+test("Stripe orders use exact minor-unit totals and return only the created Checkout URL", async () => {
+  const previousSecret = process.env.STRIPE_SECRET_KEY;
+  const previousWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  process.env.STRIPE_SECRET_KEY = "test-key";
+  process.env.STRIPE_WEBHOOK_SECRET = "test-webhook-secret";
+  let checkoutOrder;
+  const fixture = await createFixture({
+    createStripeSession: async (order) => {
+      checkoutOrder = order;
+      return { id: "cs_test_checkout", url: "https://checkout.stripe.com/pay/cs_test_checkout" };
+    },
+  });
+  try {
+    fixture.setSettings({
+      payment: { enableStripeOnlinePayment: true },
+      shipping: {
+        enableShipping: true,
+        freeShippingThreshold: 9000,
+        insideDhakaDeliveryCharge: 80,
+        outsideDhakaDeliveryCharge: 120,
+        sylhetDeliveryCharge: 60,
+      },
+    });
+    const product = fixture.products.documents[0];
+    product.price = 0.335;
+    const response = await createOrder(fixture, "test-customer-a", {
+      items: [{ productId: product._id.toString(), quantity: 3 }],
+      paymentMethod: "stripe",
+    });
+    const result = await response.json();
+    assert.equal(response.status, 201);
+    assert.equal(result.checkoutUrl, "https://checkout.stripe.com/pay/cs_test_checkout");
+    assert.equal(checkoutOrder.items[0].unitPrice, 0.34);
+    assert.equal(checkoutOrder.items[0].lineTotal, 1.02);
+    assert.equal(checkoutOrder.totalAmount, 81.02);
+    assert.equal(fixture.orders.documents[0].stripeSessionId, "cs_test_checkout");
+    assert.equal(product.stockQuantity, 5);
+  } finally {
+    await fixture.close();
+    if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = previousSecret;
+    if (previousWebhookSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+    else process.env.STRIPE_WEBHOOK_SECRET = previousWebhookSecret;
+  }
+});
+
+test("failed Stripe session creation cancels the order and restores reserved stock once", async () => {
+  const previousSecret = process.env.STRIPE_SECRET_KEY;
+  const previousWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  process.env.STRIPE_SECRET_KEY = "test-key";
+  process.env.STRIPE_WEBHOOK_SECRET = "test-webhook-secret";
+  const fixture = await createFixture({
+    createStripeSession: async () => {
+      throw Object.assign(new Error("Stripe unavailable"), { status: 502 });
+    },
+  });
+  try {
+    fixture.setSettings({ payment: { enableStripeOnlinePayment: true } });
+    const response = await createOrder(fixture, "test-customer-a", {
+      paymentMethod: "stripe",
+    });
+    assert.equal(response.status, 502);
+    assert.equal(fixture.products.documents[0].stockQuantity, 8);
+    assert.equal(fixture.orders.documents[0].status, "cancelled");
+    assert.equal(fixture.orders.documents[0].paymentStatus, "failed");
+    assert.equal(fixture.adjustments.documents.length, 1);
+    assert.equal(fixture.adjustments.documents[0].quantityChanged, 2);
+  } finally {
+    await fixture.close();
+    if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = previousSecret;
+    if (previousWebhookSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+    else process.env.STRIPE_WEBHOOK_SECRET = previousWebhookSecret;
+  }
+});
+
 test("Sylhet delivery is discounted and orders above the threshold ship free", async () => {
   const fixture = await createFixture();
   try {
@@ -287,6 +374,40 @@ test("Sylhet delivery is discounted and orders above the threshold ship free", a
     const response = await createOrder(fixture, "test-customer-a", {
       items: [{ productId: product._id.toString(), quantity: 4 }],
       shippingAddress: { ...shippingAddress, district: "Sylhet" },
+    });
+
+    test("orders follow saved shipping and cash-on-delivery settings", async () => {
+      const fixture = await createFixture();
+      try {
+        fixture.setSettings({
+          payment: { enableCashOnDelivery: false },
+          shipping: {
+            enableShipping: true,
+            freeShippingThreshold: 9000,
+            insideDhakaDeliveryCharge: 45,
+            outsideDhakaDeliveryCharge: 125,
+            sylhetDeliveryCharge: 55,
+          },
+        });
+        const disabledPayment = await createOrder(fixture);
+        assert.equal(disabledPayment.status, 409);
+
+        fixture.setSettings({
+          payment: { enableCashOnDelivery: true },
+          shipping: {
+            enableShipping: true,
+            freeShippingThreshold: 9000,
+            insideDhakaDeliveryCharge: 45,
+            outsideDhakaDeliveryCharge: 125,
+            sylhetDeliveryCharge: 55,
+          },
+        });
+        const enabledPayment = await createOrder(fixture);
+        assert.equal(enabledPayment.status, 201);
+        assert.equal((await enabledPayment.json()).data.shippingAmount, 45);
+      } finally {
+        await fixture.close();
+      }
     });
     const order = (await response.json()).data;
     assert.equal(response.status, 201);

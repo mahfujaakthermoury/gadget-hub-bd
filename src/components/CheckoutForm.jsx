@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { formatPrice } from "../data/products.js";
 import { customerOrderRequest } from "../services/orderService.js";
+import { useTheme } from "../context/ThemeContext.jsx";
+import { getProfile } from "../services/profileService.js";
 
 const fieldClass =
   "input input-bordered mt-1.5 h-11 min-h-11 w-full rounded-xl border-slate-200 bg-white text-sm text-ink focus:border-brand-blue focus:outline-none";
 
 export default function CheckoutForm({ user, cart, onCancel, onPlaced }) {
+  const { storeSettings } = useTheme();
   const [values, setValues] = useState({
     fullName: user?.name || "",
     phone: "",
@@ -17,17 +20,62 @@ export default function CheckoutForm({ user, cart, onCancel, onPlaced }) {
   });
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [savedAddresses, setSavedAddresses] = useState([]);
+  const [paymentMethod, setPaymentMethod] = useState("cash_on_delivery");
+  useEffect(() => {
+    if (!user) return undefined;
+    let active = true;
+    getProfile()
+      .then((profile) => {
+        if (!active) return;
+        const addresses = profile.addresses || [];
+        setSavedAddresses(addresses);
+        const defaultAddress = addresses.find((address) => address.isDefault) || addresses[0];
+        if (defaultAddress) {
+          setValues((current) => ({
+            ...current,
+            fullName: defaultAddress.fullName,
+            phone: defaultAddress.phoneNumber,
+            address: defaultAddress.addressLine,
+            city: defaultAddress.city,
+            district: defaultAddress.district,
+            postalCode: defaultAddress.postalCode || "",
+          }));
+        }
+      })
+      .catch((requestError) => {
+        if (active) console.warn("Could not load a saved checkout address.", requestError);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]);
   const subtotal = cart.reduce(
     (sum, entry) => sum + entry.product.price * entry.quantity,
     0,
   );
-  const shippingAmount =
-    subtotal >= 5000
+  const shipping = storeSettings?.shipping;
+  const district = values.district.trim().toLowerCase();
+  const shippingAmount = shipping?.enableShipping === false
+    ? 0
+    : subtotal >= (shipping?.freeShippingThreshold ?? 5000)
       ? 0
-      : values.district.trim().toLowerCase() === "sylhet"
-        ? 60
-        : 120;
+      : district === "dhaka"
+        ? shipping?.insideDhakaDeliveryCharge ?? 80
+        : district === "sylhet"
+          ? shipping?.sylhetDeliveryCharge ?? 60
+          : shipping?.outsideDhakaDeliveryCharge ?? 120;
   const total = subtotal + shippingAmount;
+  const cashOnDeliveryEnabled =
+    storeSettings?.payment?.enableCashOnDelivery !== false;
+  const stripeEnabled =
+    storeSettings?.payment?.enableStripeOnlinePayment === true &&
+    storeSettings?.payment?.stripeConfigured === true;
+  const paymentEnabled =
+    (cashOnDeliveryEnabled && paymentMethod === "cash_on_delivery") ||
+    (stripeEnabled && paymentMethod === "stripe");
+  const canCheckout =
+    paymentEnabled && Boolean(user) && user.role === "customer";
   const productsHaveDatabaseIds = cart.every((entry) =>
     /^[\da-f]{24}$/iu.test(entry.product.mongoId || ""),
   );
@@ -35,6 +83,20 @@ export default function CheckoutForm({ user, cart, onCancel, onPlaced }) {
   const updateValue = (event) => {
     setValues((current) => ({ ...current, [event.target.name]: event.target.value }));
   };
+
+  useEffect(() => {
+    const defaultMethod = storeSettings?.payment?.defaultPaymentMethod;
+    if (
+      (defaultMethod === "stripe" && stripeEnabled) ||
+      (defaultMethod === "cash_on_delivery" && cashOnDeliveryEnabled)
+    ) {
+      setPaymentMethod(defaultMethod);
+    } else if (!cashOnDeliveryEnabled && stripeEnabled) {
+      setPaymentMethod("stripe");
+    } else if (!stripeEnabled && cashOnDeliveryEnabled) {
+      setPaymentMethod("cash_on_delivery");
+    }
+  }, [storeSettings, cashOnDeliveryEnabled, stripeEnabled]);
 
   const submitOrder = async (event) => {
     event.preventDefault();
@@ -49,9 +111,20 @@ export default function CheckoutForm({ user, cart, onCancel, onPlaced }) {
             quantity: entry.quantity,
           })),
           shippingAddress: values,
-          paymentMethod: "cash_on_delivery",
+          paymentMethod,
         },
       });
+      if (paymentMethod === "stripe") {
+        const checkoutUrl = new URL(result.checkoutUrl);
+        if (
+          checkoutUrl.protocol !== "https:" ||
+          checkoutUrl.hostname !== "checkout.stripe.com"
+        ) {
+          throw new Error("The payment provider returned an invalid checkout URL.");
+        }
+        window.location.assign(checkoutUrl.href);
+        return;
+      }
       onPlaced(result.data);
     } catch (requestError) {
       setError(requestError.message);
@@ -130,22 +203,38 @@ export default function CheckoutForm({ user, cart, onCancel, onPlaced }) {
             required
           />
         </label>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4">
+        <div className="rounded-xl bg-slate-50 p-4">
           <div>
-            <p className="text-sm font-bold text-ink">Cash on delivery</p>
             <p className="mt-1 text-xs text-slate-500">
-              {subtotal >= 5000
-                ? "Free delivery on orders of ৳5,000 or more."
-                : values.district.trim().toLowerCase() === "sylhet"
-                  ? "Delivery: ৳60 in Sylhet."
-                  : "Delivery: ৳120 outside Sylhet."}
-              {" "}Online payment will be available after a gateway is configured.
+              {shipping?.enableShipping === false
+                ? "Shipping is currently disabled."
+                : shippingAmount === 0 && subtotal >= (shipping?.freeShippingThreshold ?? 5000)
+                  ? `Free delivery on orders of ${formatPrice(shipping?.freeShippingThreshold ?? 5000)} or more.`
+                  : `Delivery: ${formatPrice(shippingAmount)}.`}
+              {" "}Stripe is available only when configured by the store.
             </p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-slate-500">Subtotal {formatPrice(subtotal)}</p>
-            <p className="text-xs text-slate-500">Delivery {formatPrice(shippingAmount)}</p>
-            <p className="mt-1 text-sm font-extrabold text-brand-blue">{formatPrice(total)}</p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {cashOnDeliveryEnabled && (
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <input type="radio" name="paymentMethod" value="cash_on_delivery" checked={paymentMethod === "cash_on_delivery"} onChange={() => setPaymentMethod("cash_on_delivery")} />
+                  Cash on delivery
+                </label>
+              )}
+              {stripeEnabled && (
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <input type="radio" name="paymentMethod" value="stripe" checked={paymentMethod === "stripe"} onChange={() => setPaymentMethod("stripe")} />
+                  Pay securely with Stripe
+                </label>
+              )}
+              {!cashOnDeliveryEnabled && !stripeEnabled && (
+                <p className="text-sm font-bold text-rose-700">Checkout unavailable: no payment method is currently configured.</p>
+              )}
+            </div>
+            <div className="mt-3 text-right">
+              <p className="text-xs text-slate-500">Subtotal {formatPrice(subtotal)}</p>
+              <p className="text-xs text-slate-500">Delivery {formatPrice(shippingAmount)}</p>
+              <p className="mt-1 text-sm font-extrabold text-brand-blue">{formatPrice(total)}</p>
+            </div>
           </div>
         </div>
         {!cart.length && (
@@ -162,11 +251,12 @@ export default function CheckoutForm({ user, cart, onCancel, onPlaced }) {
               !cart.length ||
               !user ||
               user.role !== "customer" ||
-              !productsHaveDatabaseIds
+              !productsHaveDatabaseIds ||
+              !canCheckout
             }
             className="btn btn-primary rounded-full border-0 bg-brand-blue text-white hover:bg-brand-purple"
           >
-            {isSubmitting ? "Placing order…" : "Place order"}
+            {isSubmitting ? "Processing…" : paymentMethod === "stripe" ? "Continue to Stripe" : "Place order"}
             {!isSubmitting && <ArrowRight size={16} />}
           </button>
         </div>

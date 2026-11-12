@@ -12,12 +12,12 @@ export function isValidEmail(email) {
   return email.length <= 254 && emailPattern.test(email);
 }
 
-export function getPasswordPolicyErrors(password) {
+export function getPasswordPolicyErrors(password, minimumLength = minimumPasswordLength) {
   const errors = [];
   const passwordLength = Array.from(password).length;
 
-  if (passwordLength < minimumPasswordLength) {
-    errors.push(`Password must be at least ${minimumPasswordLength} characters.`);
+  if (passwordLength < minimumLength) {
+    errors.push(`Password must be at least ${minimumLength} characters.`);
   }
   if (passwordLength > maximumPasswordLength) {
     errors.push(`Password must be ${maximumPasswordLength} characters or fewer.`);
@@ -38,7 +38,7 @@ export function getPasswordPolicyErrors(password) {
   return errors;
 }
 
-export function validateRegistration(body) {
+export function validateRegistration(body, { minimumPasswordLength = 6 } = {}) {
   const errors = {};
 
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -70,7 +70,7 @@ export function validateRegistration(body) {
   if (!password) {
     errors.password = "Password is required.";
   } else {
-    const passwordErrors = getPasswordPolicyErrors(password);
+    const passwordErrors = getPasswordPolicyErrors(password, minimumPasswordLength);
     if (passwordErrors.length > 0) {
       errors.password = passwordErrors.join(" ");
     }

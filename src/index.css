@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 :root {
+  --color-ink: #14253d;
+  --brand-primary: #0876a8;
+  --brand-secondary: #7914a4;
   font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   color: #14253d;
   font-synthesis: none;
@@ -22,6 +25,96 @@ body {
   min-width: 320px;
   margin: 0;
   background: #fff;
+}
+
+html[data-color-mode="dark"] {
+  color-scheme: dark;
+  --color-ink: #e5edf7;
+}
+
+html[data-color-mode="dark"] body {
+  background: #0b1220;
+  color: #e5edf7;
+}
+
+html[data-color-mode="dark"] .bg-white {
+  background-color: #111d2e !important;
+}
+
+html[data-color-mode="dark"] .bg-slate-50,
+html[data-color-mode="dark"] .bg-slate-100 {
+  background-color: #172437 !important;
+}
+
+html[data-color-mode="dark"] .bg-brand-pale {
+  background-color: #123143 !important;
+}
+
+html[data-color-mode="dark"] .bg-emerald-50,
+html[data-color-mode="dark"] .bg-rose-50,
+html[data-color-mode="dark"] .bg-amber-50,
+html[data-color-mode="dark"] .bg-sky-50 {
+  background-color: #1c2a3c !important;
+}
+
+html[data-color-mode="dark"] .text-emerald-700,
+html[data-color-mode="dark"] .text-emerald-800 {
+  color: #6ee7b7 !important;
+}
+
+html[data-color-mode="dark"] .text-rose-700,
+html[data-color-mode="dark"] .text-rose-800 {
+  color: #fda4af !important;
+}
+
+html[data-color-mode="dark"] .text-amber-800,
+html[data-color-mode="dark"] .text-amber-900 {
+  color: #fcd34d !important;
+}
+
+html[data-color-mode="dark"] .text-ink {
+  color: #e5edf7 !important;
+}
+
+html[data-color-mode="dark"] .text-slate-700,
+html[data-color-mode="dark"] .text-slate-600,
+html[data-color-mode="dark"] .text-slate-500 {
+  color: #b7c5d8 !important;
+}
+
+html[data-color-mode="dark"] .text-slate-400 {
+  color: #93a4ba !important;
+}
+
+html[data-color-mode="dark"] .border-slate-100,
+html[data-color-mode="dark"] .border-slate-200,
+html[data-color-mode="dark"] .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #2b3b50 !important;
+}
+
+html[data-color-mode="dark"] .input,
+html[data-color-mode="dark"] .select,
+html[data-color-mode="dark"] .textarea,
+html[data-color-mode="dark"] .table,
+html[data-color-mode="dark"] .menu,
+html[data-color-mode="dark"] .dropdown-content {
+  color: #e5edf7;
+}
+
+html[data-color-mode="dark"] .input,
+html[data-color-mode="dark"] .select,
+html[data-color-mode="dark"] .textarea {
+  background-color: #111d2e;
+  border-color: #3a4b62;
+}
+
+html[data-color-mode="dark"] .input::placeholder,
+html[data-color-mode="dark"] .textarea::placeholder {
+  color: #93a4ba;
+}
+
+html[data-color-mode="dark"] .table :where(th, td) {
+  border-color: #2b3b50;
 }
 
 button,

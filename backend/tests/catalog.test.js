@@ -98,7 +98,10 @@ class MemoryCollection {
   }
 }
 
-async function createFixture(role = "admin") {
+async function createFixture(
+  role = "admin",
+  uploadImage = async () => "https://res.cloudinary.com/demo/image/upload/test.png",
+) {
   const userId = new ObjectId();
   const sessionId = "catalog-test-session";
   const products = new MemoryCollection();
@@ -113,6 +116,7 @@ async function createFixture(role = "admin") {
   const dependencies = {
     loadProducts: async () => products,
     loadCategories: async () => categories,
+    uploadImage,
     loadUsers: async () => ({
       findOne: async (filter) => (filter._id.equals(userId) ? user : null),
     }),
@@ -235,6 +239,8 @@ test("admin product and category CRUD is validated, paginated, and reflected in 
     assert.equal(page.data.length, 1);
     assert.equal(page.pagination.total, 1);
     assert.equal(page.data[0].name, "Studio Earbuds");
+    const trailingSlashList = await fixture.request("/api/admin/products/");
+    assert.equal(trailingSlashList.status, 200);
     const secondPage = await fixture.request(
       "/api/admin/products?page=2&limit=1&category=Audio%20Gear&sort=price&order=asc",
     );
@@ -284,6 +290,26 @@ test("admin product and category CRUD is validated, paginated, and reflected in 
     )).json()).data;
     assert.equal(hiddenProducts.some((item) => item.id === product.id), false);
 
+    const restoreResponse = await fixture.request(
+      `/api/admin/products/${product.mongoId}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: true, available: true }),
+      },
+    );
+    assert.equal(restoreResponse.status, 200);
+    assert.equal((await restoreResponse.json()).data.available, true);
+    const restoredProducts = (await (await fixture.request(
+      "/api/catalog/products?limit=10",
+      {},
+      false,
+    )).json()).data;
+    assert.equal(restoredProducts.some((item) => item.id === product.id), true);
+
+    await fixture.request(`/api/admin/products/${product.mongoId}`, {
+      method: "DELETE",
+    });
     await fixture.request(`/api/admin/products/${secondProduct.mongoId}`, {
       method: "DELETE",
     });
@@ -364,7 +390,66 @@ test("catalog writes require an authenticated admin", async () => {
   try {
     const customerResponse = await customerFixture.request("/api/admin/categories");
     assert.equal(customerResponse.status, 403);
+    const form = new FormData();
+    form.append(
+      "image",
+      new Blob([Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], {
+        type: "image/png",
+      }),
+      "test.png",
+    );
+    const imageResponse = await customerFixture.request(
+      "/api/admin/images",
+      { method: "POST", body: form },
+    );
+    assert.equal(imageResponse.status, 403);
   } finally {
     await customerFixture.close();
+  }
+});
+
+test("admin image upload validates image content and returns the hosted URL", async () => {
+  let uploadedFile;
+  const fixture = await createFixture(
+    "admin",
+    async (file) => {
+      uploadedFile = file;
+      return "https://res.cloudinary.com/demo/image/upload/catalog/item.png";
+    },
+  );
+  try {
+    const form = new FormData();
+    form.append(
+      "image",
+      new Blob([
+        Uint8Array.from([
+          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+        ]),
+      ], { type: "image/png" }),
+      "item.png",
+    );
+    const response = await fixture.request("/api/admin/images", {
+      method: "POST",
+      body: form,
+    });
+    const result = await response.json();
+    assert.equal(response.status, 201);
+    assert.equal(result.data.url, "https://res.cloudinary.com/demo/image/upload/catalog/item.png");
+    assert.equal(uploadedFile.mimetype, "image/png");
+    assert.equal(fixture.products.documents.length, 0);
+
+    const invalidForm = new FormData();
+    invalidForm.append(
+      "image",
+      new Blob(["not an image"], { type: "image/png" }),
+      "fake.png",
+    );
+    const invalidResponse = await fixture.request("/api/admin/images", {
+      method: "POST",
+      body: invalidForm,
+    });
+    assert.equal(invalidResponse.status, 400);
+  } finally {
+    await fixture.close();
   }
 });

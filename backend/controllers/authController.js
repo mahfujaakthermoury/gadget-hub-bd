@@ -1,5 +1,6 @@
 import { getUsersCollection } from "../models/users.js";
 import { getSessionsCollection } from "../models/sessions.js";
+import { getSettingsCollection } from "../models/settings.js";
 import {
   authCookieName,
   getAuthCookieClearOptions,
@@ -20,20 +21,33 @@ const duplicateEmailResponse = {
 
 export function createRegistrationController({
   loadUsers = getUsersCollection,
+  loadSettings = getSettingsCollection,
   hash = hashPassword,
   logger = console,
 } = {}) {
   return async function register(request, response) {
-    const validation = validateRegistration(request.body);
-    if (!validation.valid) {
-      return response.status(400).json({
-        success: false,
-        message: "Please check the provided registration details.",
-        errors: validation.errors,
-      });
-    }
-
     try {
+      const settings = await loadSettings();
+      const storeSettings = await settings.findOne(
+        { _id: "store-settings" },
+      );
+      if (storeSettings?.security?.registrationEnabled === false) {
+        return response.status(403).json({
+          success: false,
+          message: "New customer registration is currently unavailable.",
+        });
+      }
+      const validation = validateRegistration(request.body, {
+        minimumPasswordLength:
+          storeSettings?.security?.minimumPasswordLength ?? 6,
+      });
+      if (!validation.valid) {
+        return response.status(400).json({
+          success: false,
+          message: "Please check the provided registration details.",
+          errors: validation.errors,
+        });
+      }
       const users = await loadUsers();
       const { name, email, emailNormalized, password } = validation.data;
 
@@ -94,6 +108,7 @@ const invalidCredentialsResponse = {
 
 export function createLoginController({
   loadUsers = getUsersCollection,
+  loadSettings = getSettingsCollection,
   loadSessions = getSessionsCollection,
   hash = hashPassword,
   verify = verifyPassword,
@@ -130,7 +145,11 @@ export function createLoginController({
         return response.status(401).json(invalidCredentialsResponse);
       }
 
-      const authToken = await createToken(user._id);
+      const settings = await loadSettings();
+      const storeSettings = await settings.findOne({ _id: "store-settings" });
+      const durationSeconds =
+        (storeSettings?.security?.sessionDurationMinutes ?? 60) * 60;
+      const authToken = await createToken(user._id, durationSeconds);
       const authCookieOptions = cookieOptions(authToken.expiresAt);
       const sessions = await loadSessions();
       await sessions.insertOne({

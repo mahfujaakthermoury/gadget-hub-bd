@@ -6,11 +6,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#14253D",
+        ink: "var(--color-ink, #14253D)",
         brand: {
           teal: "#08AFC0",
-          blue: "#0876A8",
-          purple: "#7914A4",
+          blue: "var(--brand-primary, #0876A8)",
+          purple: "var(--brand-secondary, #7914A4)",
           pale: "#EFFBFC",
         },
       },
@@ -22,7 +22,7 @@ export default {
       },
       backgroundImage: {
         "brand-gradient":
-          "linear-gradient(110deg, #08AFC0 0%, #0876A8 52%, #7914A4 100%)",
+          "linear-gradient(110deg, #08AFC0 0%, var(--brand-primary, #0876A8) 52%, var(--brand-secondary, #7914A4) 100%)",
       },
     },
   },

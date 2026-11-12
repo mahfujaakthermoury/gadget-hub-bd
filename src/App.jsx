@@ -38,6 +38,7 @@ import {
   AccountPage,
   MyOrdersPage,
   UnauthorizedPage,
+  WishlistPage,
 } from "./pages/ProtectedPages.jsx";
 import AdminLayout from "./components/admin/AdminLayout.jsx";
 import {
@@ -48,12 +49,15 @@ import {
   AdminCategoriesPage,
   AdminProductsPage,
 } from "./pages/admin/AdminCatalogPages.jsx";
+import AdminInventoryPage from "./pages/admin/AdminInventoryPage.jsx";
+import AdminSettingsPage from "./pages/admin/AdminSettingsPage.jsx";
 import {
   AdminCustomersPage,
   AdminOrdersPage,
 } from "./pages/admin/AdminOrderPages.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 import { useCatalog } from "./context/CatalogContext.jsx";
+import { useTheme } from "./context/ThemeContext.jsx";
 import {
   getLoginError,
   getRegistrationError,
@@ -64,7 +68,8 @@ const features = [
   {
     icon: Truck,
     title: "Free & fast delivery",
-    description: "Complimentary delivery on orders over ৳5,000.",
+    description: "Complimentary delivery on orders over ",
+    shippingThreshold: true,
   },
   {
     icon: LockKeyhole,
@@ -617,6 +622,7 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const { storeSettings } = useTheme();
   const { products, productCategories, refreshCatalog } = useCatalog();
   const isAdminRoute =
     location.pathname === "/admin" || location.pathname.startsWith("/admin/");
@@ -853,7 +859,7 @@ export default function App() {
             />
             <Route
               path="inventory"
-              element={<AdminSectionPage section="inventory" />}
+              element={<AdminInventoryPage />}
             />
             <Route
               path="analytics"
@@ -861,7 +867,7 @@ export default function App() {
             />
             <Route
               path="settings"
-              element={<AdminSectionPage section="settings" />}
+              element={<AdminSettingsPage />}
             />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Route>
@@ -875,6 +881,11 @@ export default function App() {
             onSearch={searchProducts}
             activePath={location.pathname}
           />
+          {storeSettings?.general?.maintenanceMode && (
+            <p className="bg-amber-100 px-4 py-2 text-center text-sm font-semibold text-amber-900" role="status">
+              The store is in maintenance mode. Some services may be temporarily unavailable.
+            </p>
+          )}
           <main>
             <Routes>
               <Route
@@ -890,7 +901,14 @@ export default function App() {
         >
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {features.map((feature, index) => (
-              <FeatureCard key={feature.title} {...feature} index={index} />
+              <FeatureCard
+                key={feature.title}
+                {...feature}
+                description={feature.shippingThreshold
+                  ? `${feature.description}${formatPrice(storeSettings?.shipping?.freeShippingThreshold ?? 5000)}.`
+                  : feature.description}
+                index={index}
+              />
             ))}
           </div>
         </section>
@@ -1171,7 +1189,7 @@ export default function App() {
             path="/account"
             element={
               <ProtectedRoute>
-                <AccountPage user={user} />
+                <AccountPage user={user} wishlistCount={wishlist.length} />
               </ProtectedRoute>
             }
           />
@@ -1180,6 +1198,19 @@ export default function App() {
             element={
               <ProtectedRoute requiredRole="customer">
                 <MyOrdersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/wishlist"
+            element={
+              <ProtectedRoute requiredRole="customer">
+                <WishlistPage
+                  wishlist={wishlist}
+                  onAddToCart={addToCart}
+                  onToggleWishlist={toggleWishlist}
+                  onQuickView={setQuickViewProduct}
+                />
               </ProtectedRoute>
             }
           />

@@ -21,7 +21,7 @@ async function authRequest(path, { method = "GET", body } = {}) {
     });
   } catch {
     throw new AuthServiceError(
-      "Unable to reach the account service. Please try again.",
+      `The account API at ${apiBaseUrl} is unreachable. Start the backend server and confirm VITE_API_BASE_URL.`,
     );
   }
 

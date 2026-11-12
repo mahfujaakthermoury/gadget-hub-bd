@@ -15,7 +15,7 @@ const validRegistration = {
   confirmPassword: "Example-password-8",
 };
 
-function createDependencies({ existingUsers = [] } = {}) {
+function createDependencies({ existingUsers = [], registrationEnabled = true } = {}) {
   const storedUsers = [];
   const errors = [];
   const collection = {
@@ -45,6 +45,10 @@ function createDependencies({ existingUsers = [] } = {}) {
     errors,
     collection,
     loadUsers: async () => collection,
+    loadSettings: async () => ({
+      findOne: async () =>
+        registrationEnabled ? null : { security: { registrationEnabled: false } },
+    }),
     hash: async (password) => `$argon2id$test:${password}`,
     logger: { error: (...args) => errors.push(args) },
   };
@@ -101,6 +105,16 @@ test("creates a customer with a normalized email and safe response", async () =>
 test("rejects duplicate normalized email addresses", async () => {
   const dependencies = createDependencies({
     existingUsers: [{ emailNormalized: "alex@example.com" }],
+  });
+
+  test("respects the administrator's customer registration setting", async () => {
+    const dependencies = createDependencies({ registrationEnabled: false });
+    await withRegistrationEndpoint(dependencies, async (url) => {
+      const response = await postRegistration(url, validRegistration);
+      assert.equal(response.status, 403);
+      assert.match((await response.json()).message, /registration is currently unavailable/iu);
+      assert.equal(dependencies.storedUsers.length, 0);
+    });
   });
 
   await withRegistrationEndpoint(dependencies, async (url) => {

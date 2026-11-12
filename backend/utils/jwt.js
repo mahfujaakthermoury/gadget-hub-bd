@@ -42,9 +42,13 @@ export function getJwtExpirationSeconds() {
   return seconds;
 }
 
-export function createAuthToken(userId) {
+export function createAuthToken(userId, configuredExpirationSeconds) {
   const secret = getSecret();
-  const expiresInSeconds = getJwtExpirationSeconds();
+  const expiresInSeconds =
+    configuredExpirationSeconds ?? getJwtExpirationSeconds();
+  if (!Number.isSafeInteger(expiresInSeconds) || expiresInSeconds < 1) {
+    throw new JwtConfigurationError("Configured session duration is invalid.");
+  }
   const issuedAt = Math.floor(Date.now() / 1000);
   const jti = randomUUID();
   const token = jwt.sign(

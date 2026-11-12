@@ -5,8 +5,9 @@ import PageHeader from "../components/PageHeader.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import { products as localProducts } from "../data/products.js";
 import { useCatalog } from "../context/CatalogContext.jsx";
+import { useTheme } from "../context/ThemeContext.jsx";
 
-const PAGE_SIZE = 8;
+const DEFAULT_PAGE_SIZE = 8;
 const MAX_PRICE = Math.max(...localProducts.map((product) => product.price));
 
 export default function ShopPage({
@@ -16,6 +17,8 @@ export default function ShopPage({
   wishlist,
 }) {
   const { products, productCategories } = useCatalog();
+  const { storeSettings } = useTheme();
+  const pageSize = storeSettings?.store?.productsPerPage ?? DEFAULT_PAGE_SIZE;
   const [searchParams, setSearchParams] = useSearchParams();
   const categoryParam = searchParams.get("category") || "All products";
   const queryParam = searchParams.get("q") || "";
@@ -23,7 +26,7 @@ export default function ShopPage({
   const [maxPrice, setMaxPrice] = useState(MAX_PRICE);
   const [minimumRating, setMinimumRating] = useState(0);
   const [sortBy, setSortBy] = useState("popular");
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [visibleCount, setVisibleCount] = useState(pageSize);
   const maxPriceLimit = Math.max(
     MAX_PRICE,
     ...products.map((product) => product.price),
@@ -32,6 +35,9 @@ export default function ShopPage({
   useEffect(() => {
     setMaxPrice(maxPriceLimit);
   }, [maxPriceLimit]);
+  useEffect(() => {
+    setVisibleCount(pageSize);
+  }, [pageSize]);
 
   const category = productCategories.includes(categoryParam)
     ? categoryParam
@@ -70,7 +76,7 @@ export default function ShopPage({
     if (value === "All products") next.delete("category");
     else next.set("category", value);
     setSearchParams(next);
-    setVisibleCount(PAGE_SIZE);
+    setVisibleCount(pageSize);
   };
 
   return (

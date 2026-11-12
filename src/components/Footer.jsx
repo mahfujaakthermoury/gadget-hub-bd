@@ -43,7 +43,7 @@ export default function Footer() {
               aria-label="Gadget Hub home"
             >
               <img
-                src="/gadget-hub-logo.png"
+                src="/gadget-hub-logo.jpeg"
                 alt="Gadget Hub — Smarter tech. Better life."
                 className="h-12 w-[176px] object-contain"
                 loading="lazy"

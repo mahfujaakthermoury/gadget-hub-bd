@@ -7,9 +7,11 @@ import {
   createRegistrationController,
 } from "../controllers/authController.js";
 import { createVerifyToken } from "../middleware/verifyToken.js";
+import { getSettingsCollection } from "../models/settings.js";
 
 export function createAuthRouter(dependencies = {}) {
   const router = Router();
+  const loadSettings = dependencies.loadSettings || getSettingsCollection;
   const registrationLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 5,
@@ -22,7 +24,11 @@ export function createAuthRouter(dependencies = {}) {
   });
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 5,
+    limit: async () => {
+      const settings = await loadSettings();
+      const saved = await settings.findOne({ _id: "store-settings" });
+      return saved?.security?.loginAttemptLimit ?? 5;
+    },
     standardHeaders: "draft-8",
     legacyHeaders: false,
     message: {

@@ -17,6 +17,10 @@ export async function getOrdersCollection() {
         { status: 1, paymentStatus: 1, createdAt: -1 },
         { name: "orders_status_payment_created" },
       ),
+      ordersCollection.createIndex(
+        { paymentStatus: 1, paymentVerifiedAt: 1 },
+        { name: "orders_verified_payment_date" },
+      ),
     ]).catch((error) => {
       indexesPromise = undefined;
       throw error;

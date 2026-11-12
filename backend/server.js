@@ -7,6 +7,10 @@ import { createAuthRouter } from "./routes/authRoutes.js";
 import { createAdminRouter } from "./routes/adminRoutes.js";
 import { createCatalogRouter } from "./routes/catalogRoutes.js";
 import { createOrderRouter, createMyOrdersRouter } from "./routes/orderRoutes.js";
+import { createProfileRouter } from "./routes/profileRoutes.js";
+import { createPublicSettingsRouter } from "./routes/settingsRoutes.js";
+import { createPaymentRouter } from "./routes/paymentRoutes.js";
+import { createStripeWebhookController } from "./controllers/paymentController.js";
 import { connectToDatabase } from "./db.js";
 
 const port = Number(process.env.PORT || 5000);
@@ -43,6 +47,11 @@ app.use(
     credentials: true,
   }),
 );
+app.post(
+  "/api/payments/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  createStripeWebhookController(),
+);
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 app.use("/api/auth", createAuthRouter());
@@ -50,6 +59,9 @@ app.use("/api/admin", createAdminRouter());
 app.use("/api/catalog", createCatalogRouter());
 app.use("/api/orders", createOrderRouter());
 app.use("/api/my-orders", createMyOrdersRouter());
+app.use("/api/profile", createProfileRouter());
+app.use("/api/settings", createPublicSettingsRouter());
+app.use("/api/payments", createPaymentRouter());
 
 app.get("/api/health", async (_request, response) => {
   try {

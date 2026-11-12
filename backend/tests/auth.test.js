@@ -54,7 +54,7 @@ async function withAuthEnvironment(overrides = {}, callback) {
   }
 }
 
-async function createFixture({ active = true } = {}) {
+async function createFixture({ active = true, loginAttemptLimit } = {}) {
   const userId = new ObjectId();
   const passwordHash = await hashPassword(testPassword);
   const user = {
@@ -116,6 +116,12 @@ async function createFixture({ active = true } = {}) {
     dependencies: {
       loadUsers: async () => usersCollection,
       loadSessions: async () => sessionsCollection,
+      loadSettings: async () => ({
+        findOne: async () =>
+          loginAttemptLimit === undefined
+            ? null
+            : { security: { loginAttemptLimit } },
+      }),
       hash: hashPassword,
       verify: verifyPassword,
       createToken: createAuthToken,
@@ -414,6 +420,7 @@ test("login attempts are rate limited", async () =>
   withAuthEnvironment({}, async () => {
     const dependencies = {
       loadUsers: async () => ({ findOne: async () => null }),
+      loadSettings: async () => ({ findOne: async () => null }),
       hash: async () => "unused-test-hash",
       logger: { error() {} },
     };
@@ -435,3 +442,21 @@ test("login attempts are rate limited", async () =>
       );
     });
   }));
+
+test("login attempt limit follows the saved administrator security setting", async () => {
+  const fixture = await createFixture({ loginAttemptLimit: 1 });
+  await withAuthEnvironment({}, async () => {
+    await withAuthServer(fixture.dependencies, async (url) => {
+      const first = await requestJson(url, "/login", {
+        method: "POST",
+        body: loginBody({ password: "incorrect-password" }),
+      });
+      const second = await requestJson(url, "/login", {
+        method: "POST",
+        body: loginBody({ password: "incorrect-password" }),
+      });
+      assert.equal(first.status, 401);
+      assert.equal(second.status, 429);
+    });
+  });
+});

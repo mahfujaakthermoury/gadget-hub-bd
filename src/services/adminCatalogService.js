@@ -37,3 +37,36 @@ export async function adminCatalogRequest(path, { method = "GET", body } = {}) {
   }
   return result;
 }
+
+export async function uploadCatalogImage(file) {
+  const form = new FormData();
+  form.append("image", file);
+
+  let response;
+  try {
+    response = await fetch(`${apiBaseUrl}/api/admin/images`, {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+  } catch {
+    throw new AdminCatalogError("Unable to reach the image upload service.");
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new AdminCatalogError(
+      "The image upload service returned an invalid response.",
+      response.status,
+    );
+  }
+  if (!response.ok) {
+    throw new AdminCatalogError(
+      result.error || "The image could not be uploaded.",
+      response.status,
+    );
+  }
+  return result.data.url;
+}

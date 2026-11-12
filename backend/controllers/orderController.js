@@ -2,6 +2,10 @@ import { ObjectId } from "mongodb";
 import { withDatabaseTransaction } from "../db.js";
 import { getOrdersCollection } from "../models/orders.js";
 import { getProductsCollection } from "../models/catalog.js";
+import { getSettingsCollection } from "../models/settings.js";
+import { getInventoryAdjustmentsCollection } from "../models/inventoryAdjustments.js";
+import { getDefaultSettings } from "./settingsController.js";
+import { createStripeCheckoutSession } from "../services/stripeService.js";
 
 export const orderStatuses = [
   "pending",
@@ -167,6 +171,9 @@ function safeOrderFilter(query) {
 export function createCustomerOrderController({
   loadOrders = getOrdersCollection,
   loadProducts = getProductsCollection,
+  loadSettings = getSettingsCollection,
+  loadAdjustments = getInventoryAdjustmentsCollection,
+  createStripeSession = createStripeCheckoutSession,
   runTransaction = withDatabaseTransaction,
 } = {}) {
   return {
@@ -180,12 +187,39 @@ export function createCustomerOrderController({
         if (Object.keys(body).some((field) => !allowed.has(field))) {
           throw httpError(400, "Only products, shipping address, and payment method may be submitted.");
         }
-        if (body.paymentMethod !== "cash_on_delivery") {
-          throw httpError(400, "Cash on delivery is the only configured payment method.");
+        if (!["cash_on_delivery", "stripe"].includes(body.paymentMethod)) {
+          throw httpError(400, "Select a supported payment method.");
         }
         const requestedItems = readOrderItems(body.items);
         const shippingAddress = readShippingAddress(body.shippingAddress);
         const customerId = new ObjectId(request.user._id);
+        const settingsCollection = await loadSettings();
+        const storedSettings = await settingsCollection.findOne({ _id: "store-settings" });
+        const settings = getDefaultSettings();
+        for (const [section, values] of Object.entries(storedSettings || {})) {
+          if (settings[section] && values && typeof values === "object") {
+            Object.assign(settings[section], values);
+          }
+        }
+        if (!settings.payment.enableCashOnDelivery) {
+          if (body.paymentMethod === "cash_on_delivery") {
+            throw httpError(409, "Cash on delivery is currently unavailable.");
+          }
+        }
+        if (
+          body.paymentMethod === "stripe" &&
+          (!settings.payment.enableStripeOnlinePayment ||
+            !process.env.STRIPE_SECRET_KEY ||
+            !process.env.STRIPE_WEBHOOK_SECRET)
+        ) {
+          throw httpError(409, "Stripe payments are not fully configured.");
+        }
+        if (settings.general.maintenanceMode) {
+          throw httpError(
+            503,
+            "Checkout is unavailable while the store is under maintenance.",
+          );
+        }
         const orderCollection = await loadOrders();
 
         const order = await runTransaction(async (session) => {
@@ -210,30 +244,48 @@ export function createCustomerOrderController({
             if (product.stockQuantity < quantity) {
               throw httpError(409, `Not enough stock for ${product.name}.`);
             }
-            const unitPrice = product.price;
-            if (typeof unitPrice !== "number" || !Number.isFinite(unitPrice) || unitPrice < 0) {
+            if (
+              typeof product.price !== "number" ||
+              !Number.isFinite(product.price) ||
+              product.price < 0
+            ) {
               throw httpError(409, `${product.name} has an invalid catalog price.`);
             }
+            const unitAmount = Math.round(product.price * 100);
+            if (!Number.isSafeInteger(unitAmount)) {
+              throw httpError(409, `${product.name} has an invalid catalog price.`);
+            }
+            const unitPrice = unitAmount / 100;
             return {
               productId,
               name: product.name,
               image: product.image || product.images?.[0] || "",
               quantity,
               unitPrice,
-              lineTotal: Math.round(unitPrice * quantity * 100) / 100,
+              lineTotal: (unitAmount * quantity) / 100,
             };
           });
-          const totalAmount =
-            Math.round(items.reduce((total, item) => total + item.lineTotal, 0) * 100) / 100;
-          const subtotal = totalAmount;
-          const shippingAmount =
-            subtotal >= 5000
+          const subtotalCents = items.reduce(
+            (total, item) => total + Math.round(item.unitPrice * 100) * item.quantity,
+            0,
+          );
+          const subtotal = subtotalCents / 100;
+          const district = shippingAddress.district.toLowerCase();
+          const configuredShippingAmount = !settings.shipping.enableShipping
+            ? 0
+            : subtotal >= settings.shipping.freeShippingThreshold
               ? 0
-              : shippingAddress.district.toLowerCase() === "sylhet"
-                ? 60
-                : 120;
-          const finalAmount =
-            Math.round((subtotal + shippingAmount) * 100) / 100;
+              : district === "dhaka"
+                ? settings.shipping.insideDhakaDeliveryCharge
+                : district === "sylhet"
+                  ? settings.shipping.sylhetDeliveryCharge
+                  : settings.shipping.outsideDhakaDeliveryCharge;
+          const shippingCents = Math.round(configuredShippingAmount * 100);
+          if (!Number.isSafeInteger(shippingCents) || shippingCents < 0) {
+            throw httpError(409, "Shipping amount is invalid.");
+          }
+          const shippingAmount = shippingCents / 100;
+          const finalAmount = (subtotalCents + shippingCents) / 100;
 
           for (const item of items) {
             const result = await products.updateOne(
@@ -262,7 +314,7 @@ export function createCustomerOrderController({
             subtotal,
             shippingAmount,
             totalAmount: finalAmount,
-            paymentMethod: "cash_on_delivery",
+            paymentMethod: body.paymentMethod,
             paymentStatus: "pending",
             status: "pending",
             statusHistory: [
@@ -283,6 +335,73 @@ export function createCustomerOrderController({
           return document;
         });
 
+        if (body.paymentMethod === "stripe") {
+          try {
+            const checkout = await createStripeSession(order);
+            if (!checkout?.id || !checkout.url) {
+              throw httpError(502, "Stripe did not return a checkout URL.");
+            }
+            const orders = await loadOrders();
+            await orders.updateOne(
+              { _id: order._id, paymentStatus: "pending" },
+              { $set: { stripeSessionId: checkout.id, updatedAt: new Date() } },
+            );
+            response.status(201).json({
+              success: true,
+              data: normalizeOrder({ ...order, stripeSessionId: checkout.id }),
+              checkoutUrl: checkout.url,
+            });
+            return;
+          } catch (stripeError) {
+            const orders = await loadOrders();
+            const products = await loadProducts();
+            const adjustments = await loadAdjustments();
+            await runTransaction(async (session) => {
+              const cancelled = await orders.updateOne(
+                { _id: order._id, paymentStatus: "pending", status: { $ne: "cancelled" } },
+                {
+                  $set: { status: "cancelled", paymentStatus: "failed", updatedAt: new Date() },
+                  $push: {
+                    statusHistory: {
+                      status: "cancelled",
+                      changedAt: new Date(),
+                      changedBy: { name: "Stripe", role: "system" },
+                    },
+                  },
+                },
+                { session },
+              );
+              if (cancelled.matchedCount) {
+                for (const item of order.items) {
+                  const product = await products.findOne(
+                    { _id: item.productId },
+                    { session },
+                  );
+                  await products.updateOne(
+                    { _id: item.productId },
+                    { $inc: { stockQuantity: item.quantity }, $set: { updatedAt: new Date() } },
+                    { session },
+                  );
+                  await adjustments.insertOne({
+                    productId: item.productId,
+                    productName: item.name,
+                    previousStock: product?.stockQuantity ?? null,
+                    updatedStock: Number.isSafeInteger(product?.stockQuantity)
+                      ? product.stockQuantity + item.quantity
+                      : null,
+                    quantityChanged: item.quantity,
+                    reason: `Restock after Stripe checkout setup failed for ${order.orderNumber}.`,
+                    type: "restock",
+                    orderId: order._id,
+                    adminId: null,
+                    createdAt: new Date(),
+                  }, { session });
+                }
+              }
+            });
+            throw stripeError;
+          }
+        }
         response.status(201).json({ success: true, data: normalizeOrder(order) });
       } catch (error) {
         next(error);
@@ -335,6 +454,7 @@ export function createAdminOrderController({
   loadOrders = getOrdersCollection,
   loadProducts = getProductsCollection,
   runTransaction = withDatabaseTransaction,
+  loadAdjustments = getInventoryAdjustmentsCollection,
 } = {}) {
   return {
     listOrders: async (request, response, next) => {
@@ -394,13 +514,38 @@ export function createAdminOrderController({
             throw httpError(409, `Cannot change an order from ${order.status} to ${body.status}.`);
           }
           if (body.status === "cancelled") {
+            if (order.paymentMethod === "stripe") {
+              throw httpError(
+                409,
+                "Stripe orders must be expired or refunded through Stripe before cancellation.",
+              );
+            }
             const products = await loadProducts();
+            const adjustments = await loadAdjustments();
             for (const item of order.items) {
-              await products.updateOne(
+              const product = await products.findOne(
                 { _id: item.productId },
-                { $inc: { stockQuantity: item.quantity } },
                 { session },
               );
+              await products.updateOne(
+                { _id: item.productId },
+                { $inc: { stockQuantity: item.quantity }, $set: { updatedAt: new Date() } },
+                { session },
+              );
+              await adjustments.insertOne({
+                productId: item.productId,
+                productName: item.name,
+                previousStock: product?.stockQuantity ?? null,
+                updatedStock: Number.isSafeInteger(product?.stockQuantity)
+                  ? product.stockQuantity + item.quantity
+                  : null,
+                quantityChanged: item.quantity,
+                reason: `Restock after cancellation of ${order.orderNumber}.`,
+                type: "restock",
+                orderId: order._id,
+                adminId: new ObjectId(request.user._id),
+                createdAt: new Date(),
+              }, { session });
             }
           }
           const now = new Date();

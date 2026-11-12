@@ -258,5 +258,17 @@ export const productCategories = [
   "Other Electronic Gadgets",
 ];
 
-export const formatPrice = (amount) =>
-  `৳${new Intl.NumberFormat("en-BD").format(amount)}`;
+export const formatPrice = (amount) => {
+  const currency =
+    typeof document === "undefined"
+      ? "BDT"
+      : document.documentElement.dataset.currency || "BDT";
+  if (currency === "BDT") {
+    return `৳${new Intl.NumberFormat("en-BD").format(amount)}`;
+  }
+  return new Intl.NumberFormat("en", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(amount);
+};

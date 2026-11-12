@@ -55,6 +55,10 @@ async function createFixture(role = "customer", active = true) {
       fetch(`http://127.0.0.1:${server.address().port}/api/admin/access`, {
         headers: cookie ? { Cookie: cookie } : {},
       }),
+    requestPath: (path, cookie = "gadget_hub_session=test-token") =>
+      fetch(`http://127.0.0.1:${server.address().port}/api/admin${path}`, {
+        headers: cookie ? { Cookie: cookie } : {},
+      }),
     close: () =>
       new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -75,12 +79,16 @@ test("guest requests are rejected by the admin API", async () => {
 test("customers are forbidden from directly calling admin APIs", async () => {
   const fixture = await createFixture("customer");
   try {
-    const response = await fixture.request();
-    assert.equal(response.status, 403);
-    assert.equal(
-      (await response.json()).message,
-      "You do not have permission to access this resource.",
-    );
+    for (const path of ["/access", "/inventory", "/analytics/overview"]) {
+      const response = path === "/access"
+        ? await fixture.request()
+        : await fixture.requestPath(path);
+      assert.equal(response.status, 403);
+      assert.equal(
+        (await response.json()).message,
+        "You do not have permission to access this resource.",
+      );
+    }
   } finally {
     await fixture.close();
   }

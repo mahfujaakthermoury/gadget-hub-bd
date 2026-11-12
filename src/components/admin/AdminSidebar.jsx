@@ -73,7 +73,7 @@ export default function AdminSidebar({ mobileOpen, onClose }) {
             onClick={onClose}
           >
             <img
-              src="/gadget-hub-logo.png"
+              src="/gadget-hub-logo.jpeg"
               alt=""
               className="h-10 w-36 object-contain object-left"
             />
@@ -92,7 +92,7 @@ export default function AdminSidebar({ mobileOpen, onClose }) {
         </p>
         <NavigationLinks onNavigate={onClose} />
         <div className="mt-auto rounded-2xl bg-brand-pale p-4">
-          <p className="text-xs font-bold text-ink">Gadget Hub BD</p>
+          <p className="text-xs font-bold text-ink">Gadget Hub</p>
           <p className="mt-1 text-[11px] leading-5 text-slate-500">
             Administration workspace
           </p>

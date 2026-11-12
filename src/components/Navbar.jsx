@@ -4,13 +4,17 @@ import {
   Heart,
   LogOut,
   Menu,
+  Moon,
   Search,
   ShoppingBag,
+  Sun,
   UserRound,
   X,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useTheme } from "../context/ThemeContext.jsx";
+import { formatPrice } from "../data/products.js";
 
 const links = [
   { label: "Home", href: "/" },
@@ -34,6 +38,8 @@ export default function Navbar({
   const location = useLocation();
   const navigate = useNavigate();
   const { user, status, logout } = useAuth();
+  const { theme, toggleTheme, storeSettings } = useTheme();
+  const freeShippingThreshold = storeSettings?.shipping?.freeShippingThreshold ?? 5000;
   const currentPath = activePath || location.pathname;
 
   const submitSearch = (event) => {
@@ -51,7 +57,7 @@ export default function Navbar({
     } catch (error) {
       window.alert(
         error.message ||
-          "Your local session was cleared, but the server could not confirm logout.",
+        "Your local session was cleared, but the server could not confirm logout.",
       );
     } finally {
       setIsLoggingOut(false);
@@ -62,20 +68,20 @@ export default function Navbar({
   const profileLinks =
     user?.role === "admin"
       ? [
-          { label: "Admin Dashboard", href: "/admin" },
-          { label: "Account", href: "/account" },
-        ]
+        { label: "Admin Dashboard", href: "/admin" },
+        { label: "Account", href: "/account" },
+      ]
       : [
-          { label: "Account", href: "/account" },
-          { label: "My Orders", href: "/my-orders" },
-        ];
+        { label: "Account", href: "/account" },
+        { label: "My Orders", href: "/my-orders" },
+      ];
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-100 bg-white/95 shadow-[0_3px_20px_rgba(20,37,61,0.04)] backdrop-blur-xl">
       <div className="bg-brand-gradient text-center text-[11px] font-semibold tracking-wide text-white sm:text-xs">
         <p className="px-3 py-2">
           A little something for your next big idea — free delivery on orders
-          over ৳5,000
+          over {formatPrice(freeShippingThreshold)}
         </p>
       </div>
       <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
@@ -86,8 +92,8 @@ export default function Navbar({
             aria-label="Gadget Hub home"
           >
             <img
-              src="/gadget-hub-logo.png"
-              alt="Gadget Hub — Smarter tech. Better life."
+              src={storeSettings?.general?.websiteLogo || "/gadget-hub-logo.jpeg"}
+              alt={`${storeSettings?.general?.websiteName || "Gadget Hub"} logo`}
               className="h-10 w-[138px] object-contain sm:h-12 sm:w-[166px]"
             />
           </Link>
@@ -98,11 +104,10 @@ export default function Navbar({
                 key={link.label}
                 to={link.href}
                 aria-current={currentPath === link.href ? "page" : undefined}
-                className={`nav-link text-[13px] font-semibold transition-colors hover:text-brand-blue ${
-                  currentPath === link.href
+                className={`nav-link text-[13px] font-semibold transition-colors hover:text-brand-blue ${currentPath === link.href
                     ? "text-brand-blue"
                     : "text-slate-600"
-                }`}
+                  }`}
               >
                 {link.label}
               </Link>
@@ -134,6 +139,15 @@ export default function Navbar({
           </form>
 
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="btn btn-ghost btn-circle btn-sm text-slate-600 transition hover:text-brand-blue"
+              aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+              title="Toggle light and dark mode"
+            >
+              {theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}
+            </button>
             <button
               type="button"
               onClick={() => onOpenPanel("wishlist")}
@@ -259,11 +273,10 @@ export default function Navbar({
                     to={link.href}
                     onClick={() => setMenuOpen(false)}
                     aria-current={currentPath === link.href ? "page" : undefined}
-                    className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition hover:bg-brand-pale hover:text-brand-blue ${
-                      currentPath === link.href
+                    className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition hover:bg-brand-pale hover:text-brand-blue ${currentPath === link.href
                         ? "bg-brand-pale text-brand-blue"
                         : "text-slate-700"
-                    }`}
+                      }`}
                   >
                     {link.label}
                   </Link>

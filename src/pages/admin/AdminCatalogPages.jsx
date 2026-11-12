@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
-import { Archive, Pencil, Plus, Search, Tags, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Archive, ImagePlus, Pencil, Plus, Search, Tags, Trash2 } from "lucide-react";
 import { useCatalog } from "../../context/CatalogContext.jsx";
-import { adminCatalogRequest } from "../../services/adminCatalogService.js";
+import {
+  adminCatalogRequest,
+  uploadCatalogImage,
+} from "../../services/adminCatalogService.js";
 
 function CatalogNotice({ error, success }) {
   if (!error && !success) return null;
@@ -51,6 +54,57 @@ function Field({ label, children, className = "" }) {
   );
 }
 
+function ImageSourceSelector({
+  mode,
+  onModeChange,
+  fileInputRef,
+  onFileChange,
+  uploading,
+  children,
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap gap-2" aria-label="Image source">
+        <button
+          type="button"
+          className={`btn btn-sm rounded-full ${mode === "url" ? "btn-primary border-0 bg-brand-blue text-white" : "btn-ghost"}`}
+          aria-pressed={mode === "url"}
+          onClick={() => onModeChange("url")}
+        >
+          Upload Image URL
+        </button>
+        <button
+          type="button"
+          className={`btn btn-sm rounded-full ${mode === "file" ? "btn-primary border-0 bg-brand-blue text-white" : "btn-ghost"}`}
+          aria-pressed={mode === "file"}
+          onClick={() => onModeChange("file")}
+        >
+          <ImagePlus size={15} /> Upload Image File
+        </button>
+      </div>
+      {mode === "url" ? (
+        children
+      ) : (
+        <Field label="Image file (JPEG, PNG, or WebP; up to 5 MB)">
+          <input
+            ref={fileInputRef}
+            className={`${inputClass} file-input`}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={onFileChange}
+            disabled={uploading}
+          />
+          <span className="mt-1 block text-xs text-slate-500">
+            {uploading
+              ? "Uploading image…"
+              : "The image is uploaded to the configured cloud image service."}
+          </span>
+        </Field>
+      )}
+    </div>
+  );
+}
+
 const inputClass =
   "input input-bordered mt-1.5 h-11 min-h-11 w-full rounded-xl border-slate-200 bg-white text-sm text-ink focus:border-brand-blue focus:outline-none";
 const textAreaClass =
@@ -74,10 +128,37 @@ function ProductForm({ product, categories, busy, onClose, onSave }) {
     badgeTone: product?.badgeTone || "",
   }));
   const [error, setError] = useState("");
+  const [imageMode, setImageMode] = useState("url");
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef(null);
 
   const change = (event) => {
     const { name, value, type, checked } = event.target;
     setValues((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
+  };
+  const handleImageFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image files must be 5 MB or smaller.");
+      return;
+    }
+
+    setError("");
+    setUploadingImage(true);
+    try {
+      const url = await uploadCatalogImage(file);
+      setValues((current) => ({
+        ...current,
+        imageUrls: [current.imageUrls.trim(), url].filter(Boolean).join("\n"),
+      }));
+      setImageMode("url");
+    } catch (uploadError) {
+      setError(uploadError.message);
+    } finally {
+      setUploadingImage(false);
+    }
   };
   const submit = async (event) => {
     event.preventDefault();
@@ -166,9 +247,17 @@ function ProductForm({ product, categories, busy, onClose, onSave }) {
         <Field label="Description *">
           <textarea className={textAreaClass} name="description" value={values.description} onChange={change} maxLength="5000" required />
         </Field>
-        <Field label="Product image URLs * (one URL per line)">
-          <textarea className={`${textAreaClass} min-h-20`} name="imageUrls" value={values.imageUrls} onChange={change} required placeholder="https://images.example.com/product.jpg" />
-        </Field>
+        <ImageSourceSelector
+          mode={imageMode}
+          onModeChange={setImageMode}
+          fileInputRef={fileInputRef}
+          onFileChange={handleImageFile}
+          uploading={uploadingImage}
+        >
+          <Field label="Product image URLs * (one URL per line)">
+            <textarea className={`${textAreaClass} min-h-20`} name="imageUrls" value={values.imageUrls} onChange={change} required placeholder="https://images.example.com/product.jpg" />
+          </Field>
+        </ImageSourceSelector>
         <div className="flex flex-wrap gap-x-6 gap-y-3">
           {[
             ["available", "Available to purchase"],
@@ -182,7 +271,7 @@ function ProductForm({ product, categories, busy, onClose, onSave }) {
         </div>
         <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
           <button type="button" className="btn btn-ghost rounded-full" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary rounded-full border-0 bg-brand-blue text-white" disabled={busy}>
+          <button type="submit" className="btn btn-primary rounded-full border-0 bg-brand-blue text-white" disabled={busy || uploadingImage}>
             {busy ? "Saving…" : "Save product"}
           </button>
         </div>
@@ -283,7 +372,7 @@ export function AdminProductsPage() {
     try {
       await adminCatalogRequest(`products/${product.mongoId}`, {
         method: "PUT",
-        body: { active: true },
+        body: { active: true, available: true },
       });
       setSuccess("Product reactivated.");
       await Promise.all([loadProducts(), loadCategories(), refreshCatalog()]);
@@ -395,9 +484,33 @@ function CategoryForm({ category, busy, onClose, onSave }) {
     active: category?.active ?? true,
   });
   const [error, setError] = useState("");
+  const [imageMode, setImageMode] = useState("url");
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef(null);
   const change = (event) => {
     const { name, value, type, checked } = event.target;
     setValues((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
+  };
+  const handleImageFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image files must be 5 MB or smaller.");
+      return;
+    }
+
+    setError("");
+    setUploadingImage(true);
+    try {
+      const image = await uploadCatalogImage(file);
+      setValues((current) => ({ ...current, image }));
+      setImageMode("url");
+    } catch (uploadError) {
+      setError(uploadError.message);
+    } finally {
+      setUploadingImage(false);
+    }
   };
   const submit = async (event) => {
     event.preventDefault();
@@ -416,7 +529,15 @@ function CategoryForm({ category, busy, onClose, onSave }) {
           <Field label="Slug"><input className={inputClass} name="slug" value={values.slug} onChange={change} maxLength="140" placeholder="Generated from name" /></Field>
         </div>
         <Field label="Description"><textarea className={textAreaClass} name="description" value={values.description} onChange={change} maxLength="1000" /></Field>
-        <Field label="Category image URL *"><input className={inputClass} name="image" type="url" value={values.image} onChange={change} required /></Field>
+        <ImageSourceSelector
+          mode={imageMode}
+          onModeChange={setImageMode}
+          fileInputRef={fileInputRef}
+          onFileChange={handleImageFile}
+          uploading={uploadingImage}
+        >
+          <Field label="Category image URL *"><input className={inputClass} name="image" type="url" value={values.image} onChange={change} required /></Field>
+        </ImageSourceSelector>
         <div className="flex flex-wrap gap-x-6 gap-y-3">
           {[
             ["active", "Active in storefront"],
@@ -431,7 +552,7 @@ function CategoryForm({ category, busy, onClose, onSave }) {
         </div>
         <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
           <button type="button" className="btn btn-ghost rounded-full" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary rounded-full border-0 bg-brand-blue text-white" disabled={busy}>{busy ? "Saving…" : "Save category"}</button>
+          <button type="submit" className="btn btn-primary rounded-full border-0 bg-brand-blue text-white" disabled={busy || uploadingImage}>{busy ? "Saving…" : "Save category"}</button>
         </div>
       </form>
     </CatalogFormShell>
